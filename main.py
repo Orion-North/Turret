@@ -8,7 +8,11 @@ camera index, detection confidence, and manual or automatic mode.
 import threading
 import time
 import serial
+# OpenCV for image processing and face detection
 import cv2
+# Haar cascade classifier for face detection
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + \
+    'haarcascade_frontalface_default.xml')
 from ultralytics import YOLO
 import tkinter as tk
 from tkinter import ttk
@@ -22,9 +26,9 @@ MODEL_PATH = "yolov8n.pt"
 PAN_RANGE_DEG = 120
 TILT_RANGE_DEG = 60
 AUTO_PAN_LIMIT_DEG = PAN_RANGE_DEG
-AUTO_PAN_SPEED_MULT = 2.0
+AUTO_PAN_SPEED_MULT = 12.0
 # Macro step degrees for pan/tilt when scanning without detections (amplitude per scan cycle)
-PAN_STEP_DEG = 2
+PAN_STEP_DEG = 4
 TILT_STEP_DEG = 2
 # Delay (seconds) with no human detection before initiating no-human scanning
 NO_HUMAN_SCAN_DELAY = 1.0
@@ -37,7 +41,7 @@ BAUD_RATE = 115200
 SERIAL_TIMEOUT = 1
 TOLERANCE_PIXELS = 10
 # Number of frames to smooth detection error for auto tracking
-SMOOTHING_WINDOW = 5
+SMOOTHING_WINDOW = 10
 PRECISION_DIST_PIXELS = 50
 
 # Microstep increments (degrees) for pan and tilt in auto mode
@@ -59,7 +63,7 @@ def tilt_angle_to_steps(angle_deg):
 
 def send_command(ser, command):
     ser.write((command + "\n").encode("utf-8"))
-    time.sleep(0.05)
+    time.sleep(0.02)
 
 def calibrate_directions(ser):
     """
@@ -231,17 +235,18 @@ def manual_mode(ser, cap, model, conf, pan_sign, tilt_sign):
         ret, frame = cap.read()
         if not ret:
             continue
-        results = model(frame, classes=[0], conf=conf)[0]
-        # draw center crosshair
+        # detect faces
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
         h, w = frame.shape[:2]
         center = (w // 2, h // 2)
-        cv2.drawMarker(frame, center, (255, 0, 0), markerType=cv2.MARKER_CROSS,
-                       markerSize=20, thickness=2)
-        # if a person is detected, draw a dot, line to center, and distance
-        if len(results.boxes) > 0:
-            x1, y1, x2, y2 = results.boxes[0].xyxy[0]
-            cx = int((x1 + x2) / 2)
-            cy = int(y1 + (y2 - y1) * EYE_LEVEL_RATIO)
+        cv2.drawMarker(frame, center, (255, 0, 0),
+                       markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
+        if len(faces) > 0:
+            x, y, fw, fh = faces[0]
+            cx = x + fw // 2
+            cy = y + fh // 2
+            cv2.rectangle(frame, (x, y), (x + fw, y + fh), (0, 255, 0), 2)
             cv2.line(frame, center, (cx, cy), (0, 255, 0), 2)
             cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
             dist = int(((cx - center[0]) ** 2 + (cy - center[1]) ** 2) ** 0.5)
@@ -401,26 +406,27 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
             err_y_history = deque(err_y_history, maxlen=window_size)
             last_window = window_size
 
-        results = model(frame, classes=[0], conf=conf_val)[0]
         curr_time = time.time()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
         h, w = frame.shape[:2]
         center = (w // 2, h // 2)
         cv2.drawMarker(frame, center, (255, 0, 0),
                        markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-        if len(results.boxes) > 0:
+        if len(faces) > 0:
             last_human_time = curr_time
-            bbs = [box.xyxy[0].tolist() for box in results.boxes]
             mode = target_var.get()
             if mode == 'leftmost':
-                x1, y1, x2, y2 = min(bbs, key=lambda b: b[0])
+                x, y, fw, fh = min(faces, key=lambda f: f[0])
             elif mode == 'rightmost':
-                x1, y1, x2, y2 = max(bbs, key=lambda b: b[2])
+                x, y, fw, fh = max(faces, key=lambda f: f[0] + f[2])
             elif mode == 'closest':
-                x1, y1, x2, y2 = min(bbs, key=lambda b: abs((b[0] + b[2]) / 2 - center[0]))
+                x, y, fw, fh = min(faces, key=lambda f: abs((f[0] + f[2] / 2) - center[0]))
             else:
-                x1, y1, x2, y2 = bbs[0]
-            cx = int((x1 + x2) / 2)
-            cy = int(y1 + (y2 - y1) * EYE_LEVEL_RATIO)
+                x, y, fw, fh = faces[0]
+            cx = x + fw // 2
+            cy = y + fh // 2
+            cv2.rectangle(frame, (x, y), (x + fw, y + fh), (0, 255, 0), 2)
             cv2.line(frame, center, (cx, cy), (0, 255, 0), 2)
             cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
             err_x = cx - center[0]
@@ -503,16 +509,19 @@ def main():
             ret, frame = cap.read()
             if not ret:
                 continue
-            results = model(frame, classes=[0], conf=conf)[0]
-            if len(results.boxes) > 0:
-                # draw center crosshair and annotate detected person
+            # detect faces
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+            if len(faces) > 0:
+                # draw center crosshair and annotate detected face
                 h, w = frame.shape[:2]
                 center = (w // 2, h // 2)
                 cv2.drawMarker(frame, center, (255, 0, 0), markerType=cv2.MARKER_CROSS,
                                markerSize=20, thickness=2)
-                x1, y1, x2, y2 = results.boxes[0].xyxy[0]
-                cx = int((x1 + x2) / 2)
-                cy = int(y1 + (y2 - y1) * EYE_LEVEL_RATIO)
+                x, y, fw, fh = faces[0]
+                cx = x + fw // 2
+                cy = y + fh // 2
+                cv2.rectangle(frame, (x, y), (x + fw, y + fh), (0, 255, 0), 2)
                 cv2.line(frame, center, (cx, cy), (0, 255, 0), 2)
                 cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
                 dist = int(((cx - center[0]) ** 2 + (cy - center[1]) ** 2) ** 0.5)
@@ -520,7 +529,7 @@ def main():
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                 cv2.imshow("Detection", frame)
                 cv2.waitKey(0)
-                print("Human detected!")
+                print("Face detected!")
                 send_command(ser, "BEEP")
                 break
             next_pan = pan_angle + pan_dir * PAN_STEP_DEG
