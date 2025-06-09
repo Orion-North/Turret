@@ -1,0 +1,8 @@
+{
+    "conf": 0.5,
+    "tolerance": 27,
+    "smoothing_window": 5,
+    "pan_microstep": 3.194736842105263,
+    "tilt_microstep": 0.1,
+    "target_mode": "first"
+}
