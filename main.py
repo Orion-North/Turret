@@ -22,11 +22,10 @@ MODEL_PATH = "yolov8n.pt"
 PAN_RANGE_DEG = 120
 TILT_RANGE_DEG = 60
 AUTO_PAN_LIMIT_DEG = PAN_RANGE_DEG
+AUTO_PAN_SPEED_MULT = 2.0
 # Macro step degrees for pan/tilt when scanning without detections (amplitude per scan cycle)
-PAN_STEP_DEG = 5
-TILT_STEP_DEG = 5
-# Number of incremental steps for full tilt scan when no human detected (higher value => slower scanning)
-NO_HUMAN_SCAN_STEPS = 5
+PAN_STEP_DEG = 2
+TILT_STEP_DEG = 2
 # Delay (seconds) with no human detection before initiating no-human scanning
 NO_HUMAN_SCAN_DELAY = 1.0
 # Angle step for auto-tracking micro-movements (degrees)
@@ -49,6 +48,7 @@ PAN_MICROSTEPPING_FACTOR = MICROSTEPPING_FACTOR
 PAN_GEAR_RATIO = 1
 TILT_MICROSTEPPING_FACTOR = MICROSTEPPING_FACTOR
 TILT_GEAR_RATIO = GEAR_RATIO
+EYE_LEVEL_RATIO = 0.25
 SETTINGS_FILE = "auto_settings.json"
 
 def pan_angle_to_steps(angle_deg):
@@ -241,7 +241,7 @@ def manual_mode(ser, cap, model, conf, pan_sign, tilt_sign):
         if len(results.boxes) > 0:
             x1, y1, x2, y2 = results.boxes[0].xyxy[0]
             cx = int((x1 + x2) / 2)
-            cy = int(y1)
+            cy = int(y1 + (y2 - y1) * EYE_LEVEL_RATIO)
             cv2.line(frame, center, (cx, cy), (0, 255, 0), 2)
             cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
             dist = int(((cx - center[0]) ** 2 + (cy - center[1]) ** 2) ** 0.5)
@@ -420,7 +420,7 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
             else:
                 x1, y1, x2, y2 = bbs[0]
             cx = int((x1 + x2) / 2)
-            cy = int(y1)
+            cy = int(y1 + (y2 - y1) * EYE_LEVEL_RATIO)
             cv2.line(frame, center, (cx, cy), (0, 255, 0), 2)
             cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
             err_x = cx - center[0]
@@ -436,7 +436,7 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
                 if abs(smoothed_err_x) <= PRECISION_DIST_PIXELS:
                     pan_step = pan_micro
                 else:
-                    pan_step = PAN_STEP_DEG * normalized_err
+                    pan_step = PAN_STEP_DEG * normalized_err * AUTO_PAN_SPEED_MULT
                 pan_step = max(pan_step, pan_micro)
                 if abs(pan_angle + angle_sign * pan_step) <= AUTO_PAN_LIMIT_DEG:
                     steps = pan_angle_to_steps(pan_step)
@@ -451,14 +451,12 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
                     tilt_angle += angle_sign * tilt_micro
 
         elif curr_time - last_human_time >= NO_HUMAN_SCAN_DELAY:
-            scan_step = TILT_STEP_DEG / NO_HUMAN_SCAN_STEPS
-            for _ in range(NO_HUMAN_SCAN_STEPS):
-                if abs(tilt_angle + tilt_scan_dir * scan_step) > TILT_RANGE_DEG:
-                    tilt_scan_dir *= -1
-                steps = tilt_angle_to_steps(scan_step)
-                send_command(ser, f"TILT{tilt_scan_dir * steps * tilt_sign}")
-                tilt_angle += tilt_scan_dir * scan_step
-            tilt_scan_dir *= -1
+            scan_step = tilt_micro
+            if abs(tilt_angle + tilt_scan_dir * scan_step) > TILT_RANGE_DEG:
+                tilt_scan_dir *= -1
+            steps = tilt_angle_to_steps(scan_step)
+            send_command(ser, f"TILT{tilt_scan_dir * steps * tilt_sign}")
+            tilt_angle += tilt_scan_dir * scan_step
 
         cv2.imshow(window_name, frame)
         key = cv2.waitKeyEx(30)
@@ -514,7 +512,7 @@ def main():
                                markerSize=20, thickness=2)
                 x1, y1, x2, y2 = results.boxes[0].xyxy[0]
                 cx = int((x1 + x2) / 2)
-                cy = int(y1)
+                cy = int(y1 + (y2 - y1) * EYE_LEVEL_RATIO)
                 cv2.line(frame, center, (cx, cy), (0, 255, 0), 2)
                 cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
                 dist = int(((cx - center[0]) ** 2 + (cy - center[1]) ** 2) ** 0.5)
