@@ -34,7 +34,14 @@ TILT_STEP_DEG = 2
 NO_HUMAN_SCAN_DELAY = 1.0
 # Angle step for auto-tracking micro-movements (degrees)
 MICROSTEP_DEG = 0.5
-MICROSTEPPING_FACTOR = 2
+# Maximum step change for a single update (degrees) to limit overshoot
+MAX_PAN_STEP_DEG = 10
+MAX_TILT_STEP_DEG = 5
+# Proportional gain for auto tracking
+PAN_KP = 0.5
+TILT_KP = 0.5
+# Use finer microstepping for Nema 17 steppers for smoother motion
+MICROSTEPPING_FACTOR = 16
 STEPS_PER_REV = 200
 GEAR_RATIO = 6
 BAUD_RATE = 115200
@@ -437,24 +444,23 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
             smoothed_err_y = sum(err_y_history) / len(err_y_history)
 
             if abs(smoothed_err_x) > tolerance:
-                angle_sign = 1 if smoothed_err_x > 0 else -1
-                normalized_err = abs(smoothed_err_x) / (w / 2)
-                if abs(smoothed_err_x) <= PRECISION_DIST_PIXELS:
-                    pan_step = pan_micro
-                else:
-                    pan_step = PAN_STEP_DEG * normalized_err * AUTO_PAN_SPEED_MULT
-                pan_step = max(pan_step, pan_micro)
-                if abs(pan_angle + angle_sign * pan_step) <= AUTO_PAN_LIMIT_DEG:
-                    steps = pan_angle_to_steps(pan_step)
-                    send_command(ser, f"PAN{angle_sign * steps * pan_sign}")
-                    pan_angle += angle_sign * pan_step
+                # Proportional control scaled to screen size
+                pan_step = (PAN_RANGE_DEG * (smoothed_err_x / (w / 2))) * PAN_KP
+                pan_step = max(pan_micro, min(abs(pan_step), MAX_PAN_STEP_DEG)) * (1 if pan_step >= 0 else -1)
+                if abs(pan_angle + pan_step) <= AUTO_PAN_LIMIT_DEG:
+                    steps = pan_angle_to_steps(abs(pan_step))
+                    pan_dir = 1 if pan_step > 0 else -1
+                    send_command(ser, f"PAN{pan_dir * steps * pan_sign}")
+                    pan_angle += pan_step
 
             if abs(smoothed_err_y) > tolerance:
-                angle_sign = 1 if smoothed_err_y > 0 else -1
-                if abs(tilt_angle + angle_sign * tilt_micro) <= TILT_RANGE_DEG:
-                    steps = tilt_angle_to_steps(tilt_micro)
-                    send_command(ser, f"TILT{angle_sign * steps * tilt_sign}")
-                    tilt_angle += angle_sign * tilt_micro
+                tilt_step = (TILT_RANGE_DEG * (smoothed_err_y / (h / 2))) * TILT_KP
+                tilt_step = max(tilt_micro, min(abs(tilt_step), MAX_TILT_STEP_DEG)) * (1 if tilt_step >= 0 else -1)
+                if abs(tilt_angle + tilt_step) <= TILT_RANGE_DEG:
+                    steps = tilt_angle_to_steps(abs(tilt_step))
+                    tilt_dir = 1 if tilt_step > 0 else -1
+                    send_command(ser, f"TILT{tilt_dir * steps * tilt_sign}")
+                    tilt_angle += tilt_step
 
         elif curr_time - last_human_time >= NO_HUMAN_SCAN_DELAY:
             scan_step = tilt_micro
