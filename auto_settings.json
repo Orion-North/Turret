@@ -1,8 +1,8 @@
 {
     "conf": 0.5,
-    "tolerance": 39,
+    "tolerance": 0,
     "smoothing_window": 10,
     "pan_microstep": 5.0,
     "tilt_microstep": 0.1,
-    "target_mode": "first"
+    "target_mode": "leftmost"
 }

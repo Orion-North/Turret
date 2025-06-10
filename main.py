@@ -20,10 +20,11 @@ import json
 import os
 
 MODEL_PATH = "yolov8n.pt"
-PAN_RANGE_DEG = 120
+PAN_RANGE_DEG = 270
 TILT_RANGE_DEG = 60
 AUTO_PAN_LIMIT_DEG = PAN_RANGE_DEG
-AUTO_PAN_SPEED_MULT = 12.0
+AUTO_PAN_SPEED_MULT = 16.0
+MAX_AUTO_PAN_STEP_DEG = 5.0
 # Macro step degrees for pan/tilt when scanning without detections (amplitude per scan cycle)
 PAN_STEP_DEG = 4
 TILT_STEP_DEG = 2
@@ -449,7 +450,7 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
                     pan_step = pan_micro
                 else:
                     pan_step = PAN_STEP_DEG * normalized_err * AUTO_PAN_SPEED_MULT
-                pan_step = max(pan_step, pan_micro)
+                pan_step = min(max(pan_step, pan_micro), MAX_AUTO_PAN_STEP_DEG)
                 if abs(pan_angle + angle_sign * pan_step) <= AUTO_PAN_LIMIT_DEG:
                     steps = pan_angle_to_steps(pan_step)
                     send_command(ser, f"PAN{angle_sign * steps * pan_sign}")
