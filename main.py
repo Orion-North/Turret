@@ -8,11 +8,8 @@ camera index, detection confidence, and manual or automatic mode.
 import threading
 import time
 import serial
-# OpenCV for image processing and face detection
+# OpenCV for image processing
 import cv2
-# Haar cascade classifier for face detection
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + \
-    'haarcascade_frontalface_default.xml')
 from ultralytics import YOLO
 import tkinter as tk
 from tkinter import ttk
@@ -52,7 +49,7 @@ PAN_MICROSTEPPING_FACTOR = MICROSTEPPING_FACTOR
 PAN_GEAR_RATIO = 1
 TILT_MICROSTEPPING_FACTOR = MICROSTEPPING_FACTOR
 TILT_GEAR_RATIO = GEAR_RATIO
-EYE_LEVEL_RATIO = 0.25
+EYE_LEVEL_RATIO = 0.25  # relative height of eyes from top of detected person box
 SETTINGS_FILE = "auto_settings.json"
 
 def pan_angle_to_steps(angle_deg):
@@ -64,6 +61,17 @@ def tilt_angle_to_steps(angle_deg):
 def send_command(ser, command):
     ser.write((command + "\n").encode("utf-8"))
     time.sleep(0.02)
+
+def detect_people(frame, model, conf=0.5):
+    """Return list of detected people as (x, y, w, h) using YOLO."""
+    results = model(frame, verbose=False)[0]
+    boxes = []
+    if hasattr(results, 'boxes'):
+        for box, cls, score in zip(results.boxes.xyxy, results.boxes.cls, results.boxes.conf):
+            if int(cls) == 0 and float(score) >= conf:
+                x1, y1, x2, y2 = map(int, box)
+                boxes.append((x1, y1, x2 - x1, y2 - y1))
+    return boxes
 
 def calibrate_directions(ser):
     """
@@ -235,17 +243,16 @@ def manual_mode(ser, cap, model, conf, pan_sign, tilt_sign):
         ret, frame = cap.read()
         if not ret:
             continue
-        # detect faces
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+        # detect people
+        people = detect_people(frame, model, conf)
         h, w = frame.shape[:2]
         center = (w // 2, h // 2)
         cv2.drawMarker(frame, center, (255, 0, 0),
                        markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-        if len(faces) > 0:
-            x, y, fw, fh = faces[0]
+        if len(people) > 0:
+            x, y, fw, fh = people[0]
             cx = x + fw // 2
-            cy = y + fh // 2
+            cy = int(y + fh * EYE_LEVEL_RATIO)
             cv2.rectangle(frame, (x, y), (x + fw, y + fh), (0, 255, 0), 2)
             cv2.line(frame, center, (cx, cy), (0, 255, 0), 2)
             cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
@@ -407,25 +414,24 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
             last_window = window_size
 
         curr_time = time.time()
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+        people = detect_people(frame, model, conf_val)
         h, w = frame.shape[:2]
         center = (w // 2, h // 2)
         cv2.drawMarker(frame, center, (255, 0, 0),
                        markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
-        if len(faces) > 0:
+        if len(people) > 0:
             last_human_time = curr_time
             mode = target_var.get()
             if mode == 'leftmost':
-                x, y, fw, fh = min(faces, key=lambda f: f[0])
+                x, y, fw, fh = min(people, key=lambda p: p[0])
             elif mode == 'rightmost':
-                x, y, fw, fh = max(faces, key=lambda f: f[0] + f[2])
+                x, y, fw, fh = max(people, key=lambda p: p[0] + p[2])
             elif mode == 'closest':
-                x, y, fw, fh = min(faces, key=lambda f: abs((f[0] + f[2] / 2) - center[0]))
+                x, y, fw, fh = min(people, key=lambda p: abs((p[0] + p[2] / 2) - center[0]))
             else:
-                x, y, fw, fh = faces[0]
+                x, y, fw, fh = people[0]
             cx = x + fw // 2
-            cy = y + fh // 2
+            cy = int(y + fh * EYE_LEVEL_RATIO)
             cv2.rectangle(frame, (x, y), (x + fw, y + fh), (0, 255, 0), 2)
             cv2.line(frame, center, (cx, cy), (0, 255, 0), 2)
             cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
@@ -509,18 +515,17 @@ def main():
             ret, frame = cap.read()
             if not ret:
                 continue
-            # detect faces
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
-            if len(faces) > 0:
-                # draw center crosshair and annotate detected face
+            # detect people
+            people = detect_people(frame, model, conf)
+            if len(people) > 0:
+                # draw center crosshair and annotate detected person
                 h, w = frame.shape[:2]
                 center = (w // 2, h // 2)
                 cv2.drawMarker(frame, center, (255, 0, 0), markerType=cv2.MARKER_CROSS,
                                markerSize=20, thickness=2)
-                x, y, fw, fh = faces[0]
+                x, y, fw, fh = people[0]
                 cx = x + fw // 2
-                cy = y + fh // 2
+                cy = int(y + fh * EYE_LEVEL_RATIO)
                 cv2.rectangle(frame, (x, y), (x + fw, y + fh), (0, 255, 0), 2)
                 cv2.line(frame, center, (cx, cy), (0, 255, 0), 2)
                 cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
@@ -529,7 +534,7 @@ def main():
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                 cv2.imshow("Detection", frame)
                 cv2.waitKey(0)
-                print("Face detected!")
+                print("Person detected!")
                 send_command(ser, "BEEP")
                 break
             next_pan = pan_angle + pan_dir * PAN_STEP_DEG
