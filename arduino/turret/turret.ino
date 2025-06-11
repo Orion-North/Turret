@@ -45,6 +45,7 @@ void loop() {
       tiltStepper.release();
       runPanDir = 0;
       runTiltDir = 0;
+
     }
   }
 
