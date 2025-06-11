@@ -7,11 +7,14 @@ AF_Stepper panStepper(200, 1);
 // Tilt stepper on M3 and M4 (200 steps/rev, shield port 2)
 AF_Stepper tiltStepper(200, 2);
 
+int runPanDir = 0;
+int runTiltDir = 0;
+
 void setup() {
   Serial.begin(115200);
   // Set stepper speeds (RPM)
-  panStepper.setSpeed(300);
-  tiltStepper.setSpeed(50);
+  panStepper.setSpeed(600);
+  tiltStepper.setSpeed(100);
   pinMode(BUZZER_PIN, OUTPUT);
 }
 
@@ -23,16 +26,32 @@ void loop() {
       int steps = cmd.substring(3).toInt();
       int dir = steps >= 0 ? FORWARD : BACKWARD;
       int count = steps >= 0 ? steps : -steps;
-      panStepper.step(count, dir, SINGLE);
+      panStepper.step(count, dir, MICROSTEP);
     } else if (cmd.startsWith("TILT")) {
       int steps = cmd.substring(4).toInt();
       if (steps >= 0) {
-        tiltStepper.step(steps, FORWARD, SINGLE);
+        tiltStepper.step(steps, FORWARD, MICROSTEP);
       } else {
-        tiltStepper.step(-steps, BACKWARD, SINGLE);
+        tiltStepper.step(-steps, BACKWARD, MICROSTEP);
       }
+    } else if (cmd.startsWith("RUNP")) {
+      runPanDir = cmd.substring(4).toInt();
+    } else if (cmd.startsWith("RUNT")) {
+      runTiltDir = cmd.substring(4).toInt();
     } else if (cmd == "BEEP") {
       tone(BUZZER_PIN, 1000, 200);
+    } else if (cmd == "STOP") {
+      panStepper.release();
+      tiltStepper.release();
+      runPanDir = 0;
+      runTiltDir = 0;
     }
+  }
+
+  if (runPanDir != 0) {
+    panStepper.step(1, runPanDir > 0 ? FORWARD : BACKWARD, MICROSTEP);
+  }
+  if (runTiltDir != 0) {
+    tiltStepper.step(1, runTiltDir > 0 ? FORWARD : BACKWARD, MICROSTEP);
   }
 }
