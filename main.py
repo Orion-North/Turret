@@ -54,10 +54,14 @@ EYE_LEVEL_RATIO = 0.25  # relative height of eyes from top of detected person bo
 SETTINGS_FILE = "auto_settings.json"
 
 def pan_angle_to_steps(angle_deg):
-    return int(round((angle_deg / 360.0) * STEPS_PER_REV * PAN_MICROSTEPPING_FACTOR * PAN_GEAR_RATIO))
+    """Convert a pan angle in degrees to at least one step."""
+    steps = (angle_deg / 360.0) * STEPS_PER_REV * PAN_MICROSTEPPING_FACTOR * PAN_GEAR_RATIO
+    return max(1, int(round(steps)))
 
 def tilt_angle_to_steps(angle_deg):
-    return int(round((angle_deg / 360.0) * STEPS_PER_REV * TILT_MICROSTEPPING_FACTOR * TILT_GEAR_RATIO))
+    """Convert a tilt angle in degrees to at least one step."""
+    steps = (angle_deg / 360.0) * STEPS_PER_REV * TILT_MICROSTEPPING_FACTOR * TILT_GEAR_RATIO
+    return max(1, int(round(steps)))
 
 def send_command(ser, command):
     ser.write((command + "\n").encode("utf-8"))
@@ -484,15 +488,6 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
                     current_tilt_dir = 0
             else:
                 target_reached = False
-
-
-            if abs(smoothed_err_x) <= tolerance and abs(smoothed_err_y) <= tolerance:
-                if not target_reached:
-                    send_command(ser, "STOP")
-                    target_reached = True
-            else:
-                target_reached = False
-main
 
         elif curr_time - last_human_time >= NO_HUMAN_SCAN_DELAY:
             scan_step = tilt_micro
