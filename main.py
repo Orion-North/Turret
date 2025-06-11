@@ -54,14 +54,10 @@ EYE_LEVEL_RATIO = 0.25  # relative height of eyes from top of detected person bo
 SETTINGS_FILE = "auto_settings.json"
 
 def pan_angle_to_steps(angle_deg):
-    """Convert a pan angle in degrees to at least one step."""
-    steps = (angle_deg / 360.0) * STEPS_PER_REV * PAN_MICROSTEPPING_FACTOR * PAN_GEAR_RATIO
-    return max(1, int(round(steps)))
+    return int(round((angle_deg / 360.0) * STEPS_PER_REV * PAN_MICROSTEPPING_FACTOR * PAN_GEAR_RATIO))
 
 def tilt_angle_to_steps(angle_deg):
-    """Convert a tilt angle in degrees to at least one step."""
-    steps = (angle_deg / 360.0) * STEPS_PER_REV * TILT_MICROSTEPPING_FACTOR * TILT_GEAR_RATIO
-    return max(1, int(round(steps)))
+    return int(round((angle_deg / 360.0) * STEPS_PER_REV * TILT_MICROSTEPPING_FACTOR * TILT_GEAR_RATIO))
 
 def send_command(ser, command):
     ser.write((command + "\n").encode("utf-8"))
