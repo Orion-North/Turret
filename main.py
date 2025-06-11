@@ -461,6 +461,7 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
                     send_command(ser, "RUNP0")
                     current_pan_dir = 0
 
+
             if current_tilt_dir != 0 and smoothed_err_y * current_tilt_dir < -tolerance:
                 send_command(ser, "RUNT0")
                 current_tilt_dir = 0
@@ -483,6 +484,15 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
                     current_tilt_dir = 0
             else:
                 target_reached = False
+
+
+            if abs(smoothed_err_x) <= tolerance and abs(smoothed_err_y) <= tolerance:
+                if not target_reached:
+                    send_command(ser, "STOP")
+                    target_reached = True
+            else:
+                target_reached = False
+main
 
         elif curr_time - last_human_time >= NO_HUMAN_SCAN_DELAY:
             scan_step = tilt_micro
