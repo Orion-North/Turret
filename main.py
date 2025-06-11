@@ -37,9 +37,9 @@ STEPS_PER_REV = 200
 GEAR_RATIO = 6
 BAUD_RATE = 115200
 SERIAL_TIMEOUT = 1
-TOLERANCE_PIXELS = 10
+TOLERANCE_PIXELS = 20
 # Number of frames to smooth detection error for auto tracking
-SMOOTHING_WINDOW = 10
+SMOOTHING_WINDOW = 3
 PRECISION_DIST_PIXELS = 50
 
 # Microstep increments (degrees) for pan and tilt in auto mode
@@ -447,6 +447,10 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
             smoothed_err_x = sum(err_x_history) / len(err_x_history)
             smoothed_err_y = sum(err_y_history) / len(err_y_history)
 
+            if current_pan_dir != 0 and smoothed_err_x * current_pan_dir < -tolerance:
+                send_command(ser, "RUNP0")
+                current_pan_dir = 0
+
             if abs(smoothed_err_x) > tolerance:
                 desired_dir = 1 if smoothed_err_x > 0 else -1
                 if desired_dir != current_pan_dir:
@@ -456,6 +460,11 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
                 if current_pan_dir != 0:
                     send_command(ser, "RUNP0")
                     current_pan_dir = 0
+
+
+            if current_tilt_dir != 0 and smoothed_err_y * current_tilt_dir < -tolerance:
+                send_command(ser, "RUNT0")
+                current_tilt_dir = 0
 
             if abs(smoothed_err_y) > tolerance:
                 desired_dir = 1 if smoothed_err_y > 0 else -1
@@ -476,12 +485,14 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
             else:
                 target_reached = False
 
+
             if abs(smoothed_err_x) <= tolerance and abs(smoothed_err_y) <= tolerance:
                 if not target_reached:
                     send_command(ser, "STOP")
                     target_reached = True
             else:
                 target_reached = False
+main
 
         elif curr_time - last_human_time >= NO_HUMAN_SCAN_DELAY:
             scan_step = tilt_micro
@@ -492,7 +503,7 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
             tilt_angle += tilt_scan_dir * scan_step
 
         cv2.imshow(window_name, frame)
-        key = cv2.waitKeyEx(30)
+        key = cv2.waitKeyEx(1)
         if key == ord('q'):
             break
 
