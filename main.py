@@ -31,7 +31,7 @@ TILT_STEP_DEG = 2
 # Delay (seconds) with no human detection before initiating no-human scanning
 NO_HUMAN_SCAN_DELAY = 1.0
 # Angle step for auto-tracking micro-movements (degrees)
-MICROSTEP_DEG = 0.5
+MICROSTEP_DEG = 0.25
 MICROSTEPPING_FACTOR = 2
 STEPS_PER_REV = 200
 GEAR_RATIO = 6
@@ -391,6 +391,8 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
     err_y_history = deque(maxlen=last_window)
     last_human_time = time.time()
     target_reached = False
+    current_pan_dir = 0
+    current_tilt_dir = 0
 
     while True:
         # Process settings GUI events
@@ -446,24 +448,33 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
             smoothed_err_y = sum(err_y_history) / len(err_y_history)
 
             if abs(smoothed_err_x) > tolerance:
-                angle_sign = 1 if smoothed_err_x > 0 else -1
-                normalized_err = abs(smoothed_err_x) / (w / 2)
-                if abs(smoothed_err_x) <= PRECISION_DIST_PIXELS:
-                    pan_step = pan_micro
-                else:
-                    pan_step = PAN_STEP_DEG * normalized_err * AUTO_PAN_SPEED_MULT
-                pan_step = min(max(pan_step, pan_micro), MAX_AUTO_PAN_STEP_DEG)
-                if abs(pan_angle + angle_sign * pan_step) <= AUTO_PAN_LIMIT_DEG:
-                    steps = pan_angle_to_steps(pan_step)
-                    send_command(ser, f"PAN{angle_sign * steps * pan_sign}")
-                    pan_angle += angle_sign * pan_step
+                desired_dir = 1 if smoothed_err_x > 0 else -1
+                if desired_dir != current_pan_dir:
+                    send_command(ser, f"RUNP{desired_dir * pan_sign}")
+                    current_pan_dir = desired_dir
+            else:
+                if current_pan_dir != 0:
+                    send_command(ser, "RUNP0")
+                    current_pan_dir = 0
 
             if abs(smoothed_err_y) > tolerance:
-                angle_sign = 1 if smoothed_err_y > 0 else -1
-                if abs(tilt_angle + angle_sign * tilt_micro) <= TILT_RANGE_DEG:
-                    steps = tilt_angle_to_steps(tilt_micro)
-                    send_command(ser, f"TILT{angle_sign * steps * tilt_sign}")
-                    tilt_angle += angle_sign * tilt_micro
+                desired_dir = 1 if smoothed_err_y > 0 else -1
+                if desired_dir != current_tilt_dir:
+                    send_command(ser, f"RUNT{desired_dir * tilt_sign}")
+                    current_tilt_dir = desired_dir
+            else:
+                if current_tilt_dir != 0:
+                    send_command(ser, "RUNT0")
+                    current_tilt_dir = 0
+
+            if abs(smoothed_err_x) <= tolerance and abs(smoothed_err_y) <= tolerance:
+                if not target_reached:
+                    send_command(ser, "STOP")
+                    target_reached = True
+                    current_pan_dir = 0
+                    current_tilt_dir = 0
+            else:
+                target_reached = False
 
             if abs(smoothed_err_x) <= tolerance and abs(smoothed_err_y) <= tolerance:
                 if not target_reached:
