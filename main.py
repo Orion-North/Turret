@@ -23,23 +23,23 @@ MODEL_PATH = "yolov8n.pt"
 PAN_RANGE_DEG = 270
 TILT_RANGE_DEG = 60
 AUTO_PAN_LIMIT_DEG = PAN_RANGE_DEG
-AUTO_PAN_SPEED_MULT = 16.0
-MAX_AUTO_PAN_STEP_DEG = 5.0
+AUTO_PAN_SPEED_MULT = 32.0
+MAX_AUTO_PAN_STEP_DEG = 10.0
 # Macro step degrees for pan/tilt when scanning without detections (amplitude per scan cycle)
 PAN_STEP_DEG = 4
 TILT_STEP_DEG = 2
 # Delay (seconds) with no human detection before initiating no-human scanning
 NO_HUMAN_SCAN_DELAY = 1.0
 # Angle step for auto-tracking micro-movements (degrees)
-MICROSTEP_DEG = 0.5
+MICROSTEP_DEG = 0.25
 MICROSTEPPING_FACTOR = 2
 STEPS_PER_REV = 200
 GEAR_RATIO = 6
 BAUD_RATE = 115200
 SERIAL_TIMEOUT = 1
-TOLERANCE_PIXELS = 10
+TOLERANCE_PIXELS = 20
 # Number of frames to smooth detection error for auto tracking
-SMOOTHING_WINDOW = 10
+SMOOTHING_WINDOW = 3
 PRECISION_DIST_PIXELS = 50
 
 # Microstep increments (degrees) for pan and tilt in auto mode
@@ -61,7 +61,8 @@ def tilt_angle_to_steps(angle_deg):
 
 def send_command(ser, command):
     ser.write((command + "\n").encode("utf-8"))
-    time.sleep(0.02)
+    # shorter delay for faster response
+    time.sleep(0.005)
 
 def detect_people(frame, model, conf=0.5):
     """Return list of detected people as (x, y, w, h) using YOLO."""
@@ -389,6 +390,9 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
     err_x_history = deque(maxlen=last_window)
     err_y_history = deque(maxlen=last_window)
     last_human_time = time.time()
+    target_reached = False
+    current_pan_dir = 0
+    current_tilt_dir = 0
 
     while True:
         # Process settings GUI events
@@ -443,25 +447,42 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
             smoothed_err_x = sum(err_x_history) / len(err_x_history)
             smoothed_err_y = sum(err_y_history) / len(err_y_history)
 
+            if current_pan_dir != 0 and smoothed_err_x * current_pan_dir < -tolerance:
+                send_command(ser, "RUNP0")
+                current_pan_dir = 0
+
             if abs(smoothed_err_x) > tolerance:
-                angle_sign = 1 if smoothed_err_x > 0 else -1
-                normalized_err = abs(smoothed_err_x) / (w / 2)
-                if abs(smoothed_err_x) <= PRECISION_DIST_PIXELS:
-                    pan_step = pan_micro
-                else:
-                    pan_step = PAN_STEP_DEG * normalized_err * AUTO_PAN_SPEED_MULT
-                pan_step = min(max(pan_step, pan_micro), MAX_AUTO_PAN_STEP_DEG)
-                if abs(pan_angle + angle_sign * pan_step) <= AUTO_PAN_LIMIT_DEG:
-                    steps = pan_angle_to_steps(pan_step)
-                    send_command(ser, f"PAN{angle_sign * steps * pan_sign}")
-                    pan_angle += angle_sign * pan_step
+                desired_dir = 1 if smoothed_err_x > 0 else -1
+                if desired_dir != current_pan_dir:
+                    send_command(ser, f"RUNP{desired_dir * pan_sign}")
+                    current_pan_dir = desired_dir
+            else:
+                if current_pan_dir != 0:
+                    send_command(ser, "RUNP0")
+                    current_pan_dir = 0
+
+            if current_tilt_dir != 0 and smoothed_err_y * current_tilt_dir < -tolerance:
+                send_command(ser, "RUNT0")
+                current_tilt_dir = 0
 
             if abs(smoothed_err_y) > tolerance:
-                angle_sign = 1 if smoothed_err_y > 0 else -1
-                if abs(tilt_angle + angle_sign * tilt_micro) <= TILT_RANGE_DEG:
-                    steps = tilt_angle_to_steps(tilt_micro)
-                    send_command(ser, f"TILT{angle_sign * steps * tilt_sign}")
-                    tilt_angle += angle_sign * tilt_micro
+                desired_dir = 1 if smoothed_err_y > 0 else -1
+                if desired_dir != current_tilt_dir:
+                    send_command(ser, f"RUNT{desired_dir * tilt_sign}")
+                    current_tilt_dir = desired_dir
+            else:
+                if current_tilt_dir != 0:
+                    send_command(ser, "RUNT0")
+                    current_tilt_dir = 0
+
+            if abs(smoothed_err_x) <= tolerance and abs(smoothed_err_y) <= tolerance:
+                if not target_reached:
+                    send_command(ser, "STOP")
+                    target_reached = True
+                    current_pan_dir = 0
+                    current_tilt_dir = 0
+            else:
+                target_reached = False
 
         elif curr_time - last_human_time >= NO_HUMAN_SCAN_DELAY:
             scan_step = tilt_micro
@@ -472,7 +493,7 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
             tilt_angle += tilt_scan_dir * scan_step
 
         cv2.imshow(window_name, frame)
-        key = cv2.waitKeyEx(30)
+        key = cv2.waitKeyEx(1)
         if key == ord('q'):
             break
 
