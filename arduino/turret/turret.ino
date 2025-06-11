@@ -10,8 +10,8 @@ AF_Stepper tiltStepper(200, 2);
 void setup() {
   Serial.begin(115200);
   // Set stepper speeds (RPM)
-  panStepper.setSpeed(300);
-  tiltStepper.setSpeed(50);
+  panStepper.setSpeed(600);
+  tiltStepper.setSpeed(100);
   pinMode(BUZZER_PIN, OUTPUT);
 }
 
@@ -23,16 +23,19 @@ void loop() {
       int steps = cmd.substring(3).toInt();
       int dir = steps >= 0 ? FORWARD : BACKWARD;
       int count = steps >= 0 ? steps : -steps;
-      panStepper.step(count, dir, SINGLE);
+      panStepper.step(count, dir, MICROSTEP);
     } else if (cmd.startsWith("TILT")) {
       int steps = cmd.substring(4).toInt();
       if (steps >= 0) {
-        tiltStepper.step(steps, FORWARD, SINGLE);
+        tiltStepper.step(steps, FORWARD, MICROSTEP);
       } else {
-        tiltStepper.step(-steps, BACKWARD, SINGLE);
+        tiltStepper.step(-steps, BACKWARD, MICROSTEP);
       }
     } else if (cmd == "BEEP") {
       tone(BUZZER_PIN, 1000, 200);
+    } else if (cmd == "STOP") {
+      panStepper.release();
+      tiltStepper.release();
     }
   }
 }
