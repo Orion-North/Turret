@@ -485,6 +485,15 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
             else:
                 target_reached = False
 
+
+            if abs(smoothed_err_x) <= tolerance and abs(smoothed_err_y) <= tolerance:
+                if not target_reached:
+                    send_command(ser, "STOP")
+                    target_reached = True
+            else:
+                target_reached = False
+main
+
         elif curr_time - last_human_time >= NO_HUMAN_SCAN_DELAY:
             scan_step = tilt_micro
             if abs(tilt_angle + tilt_scan_dir * scan_step) > TILT_RANGE_DEG:
