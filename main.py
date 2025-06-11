@@ -23,8 +23,8 @@ MODEL_PATH = "yolov8n.pt"
 PAN_RANGE_DEG = 270
 TILT_RANGE_DEG = 60
 AUTO_PAN_LIMIT_DEG = PAN_RANGE_DEG
-AUTO_PAN_SPEED_MULT = 16.0
-MAX_AUTO_PAN_STEP_DEG = 5.0
+AUTO_PAN_SPEED_MULT = 32.0
+MAX_AUTO_PAN_STEP_DEG = 10.0
 # Macro step degrees for pan/tilt when scanning without detections (amplitude per scan cycle)
 PAN_STEP_DEG = 4
 TILT_STEP_DEG = 2
@@ -61,7 +61,8 @@ def tilt_angle_to_steps(angle_deg):
 
 def send_command(ser, command):
     ser.write((command + "\n").encode("utf-8"))
-    time.sleep(0.02)
+    # shorter delay for faster response
+    time.sleep(0.005)
 
 def detect_people(frame, model, conf=0.5):
     """Return list of detected people as (x, y, w, h) using YOLO."""
@@ -389,6 +390,7 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
     err_x_history = deque(maxlen=last_window)
     err_y_history = deque(maxlen=last_window)
     last_human_time = time.time()
+    target_reached = False
 
     while True:
         # Process settings GUI events
@@ -462,6 +464,13 @@ def auto_mode(ser, cap, model, conf, pan_sign, tilt_sign):
                     steps = tilt_angle_to_steps(tilt_micro)
                     send_command(ser, f"TILT{angle_sign * steps * tilt_sign}")
                     tilt_angle += angle_sign * tilt_micro
+
+            if abs(smoothed_err_x) <= tolerance and abs(smoothed_err_y) <= tolerance:
+                if not target_reached:
+                    send_command(ser, "STOP")
+                    target_reached = True
+            else:
+                target_reached = False
 
         elif curr_time - last_human_time >= NO_HUMAN_SCAN_DELAY:
             scan_step = tilt_micro
